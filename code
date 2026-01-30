@@ -1,0 +1,543 @@
+# result1 
+ps0 = base::readRDS("./data/ps_16s.rds")
+ps2 = ps0 %>% filter_taxa(function(x) sum(x ) > 0 , TRUE)
+ps = ps2
+gnum = phyloseq::sample_data(ps)$Group %>% unique() %>% length()
+gnum
+
+axis_order = c("CK","Seedling_stage","vegetative_stage","flowering_stage","fruit_stage")
+## bar plot
+result = barMainplot(ps = ps,
+                     j = "Phylum",
+                     axis_ord = axis_order,
+                     label = FALSE,
+                     sd = FALSE,
+                     Top = 10)
+
+databar <- result[[2]] %>% group_by(Group,aa) %>%
+  summarise(sum(Abundance)) %>% as.data.frame()
+head(databar)
+colnames(databar) = c("group","Order","value")
+
+library(tidyverse)
+library(ggtext)
+library(glue)
+# devtools::install_github("AllanCameron/VoronoiPlus")
+library(VoronoiPlus) 
+# 
+# au_data <- read_tsv("data.xls") %>% 
+#   filter(Treatments !="Root") %>% 
+#   pivot_longer(-c(Treatments,Compartments,`Time points`)) %>% 
+#   dplyr::rename("Order"="name") %>% 
+#   unite(.,col="group",Treatments,Compartments,`Time points`,sep="_",
+#         remove = F,na.rm = F) %>% 
+#   select(1,5,6)
+
+au_data = databar
+au_data$group %>% unique()
+
+au_vor1 <- voronoi_treemap(value ~ Order,
+                           data = au_data %>% filter(group=="CK")) %>% 
+  mutate(type="CK")
+
+au_vor2 <- voronoi_treemap(value ~ Order,
+                           data = au_data %>% filter(group=="Seedling_stage")) %>% 
+  mutate(type="Seedling_stage")
+
+au_vor3 <- voronoi_treemap(value ~ Order,
+                           data = au_data %>% filter(group=="vegetative_stage")) %>% 
+  mutate(type="vegetative_stage")
+
+au_vor4 <- voronoi_treemap(value ~ Order,
+                           data = au_data %>% filter(group=="flowering_stage")) %>% 
+  mutate(type="flowering_stage")
+
+
+au_vor5 <- voronoi_treemap(value ~ Order,
+                           data = au_data %>% filter(group=="fruit_stage")) %>% 
+  mutate(type="fruit_stage")
+
+groups <- au_vor1 %>% bind_rows(au_vor2,au_vor3,au_vor4,au_vor5)
+
+p = ggplot() +
+  geom_polygon(data = groups,mapping = aes(x = x, y = y, group = group, fill = group),
+               colour = "white",linewidth =0.8) +
+  facet_wrap(.~type,scale="free")+
+  scale_fill_manual(values =c("#FED439B2","#709AE1B2","#8A9197B2","#D2AF81B2"
+                              ,"#FD7446B2","#D5E4A2B2","#197EC0B2",
+                              "#46732EB2","#71D0F5B2","#370335B2","#91331FB2"
+                              ,"#1A9993B2", "#FD8CC1B2","#FAD510",
+                              "#FBA72A","#0A9F9D","#3B9AB2","#FF0000","#969BC7",
+                              "#B695BC","#6F9954"))+
+  theme_test()+
+  labs(x=NULL,y=NULL)+
+  theme(axis.text=element_blank(),
+        axis.ticks = element_blank(),
+        plot.background = element_rect(fill = "white", colour = "white"),
+        panel.background = element_rect(fill = "white", colour = "white"),
+        panel.spacing.x=unit(-0.1,"cm"),
+        panel.spacing.y=unit(-0.1,"cm"),
+        plot.margin = margin(2,2,0,0),
+        legend.key.height = unit(0.2,"in"), 
+        legend.key.width = unit(0.2,"in"),
+        legend.title = element_blank(),
+        legend.text = element_text(margin = margin(l=0,unit="cm")),
+        strip.background = element_rect(fill="white"),
+        strip.text = element_text(face="bold"))
+
+  phylum_abundance <- da %>%
+    group_by(Phylum) %>%
+    summarise(total_abundance = sum(Abundance)) %>%
+    arrange(desc(total_abundance))
+  
+
+  top9_phylum <- phylum_abundance$Phylum[1:9]
+
+  da_modified <- da %>%
+    mutate(Phylum_group = ifelse(Phylum %in% top9_phylum, Phylum, "Other")) %>%
+    group_by(Group, Phylum_group) %>%
+    summarise(Abundance = sum(Abundance), .groups = "drop")  # 关键：汇总相同Group和Phylum的丰度
+  
+
+  da_modified$Group <- factor(da_modified$Group, 
+                              levels = c("CK", "Seedling_stage", "vegetative_stage", 
+                                         "flowering_stage", "fruit_stage"))
+  
+ p =  ggplot(data = da_modified, aes(x = Group, y = Abundance, alluvium = Phylum_group)) +
+    geom_alluvium(aes(fill = Phylum_group), alpha = 1) +
+    scale_fill_manual(values = c("#64A4CC", "#9CCEE3", "#C7E5DB",  
+                                  "#A6CEE3", "#B2DF8A", 
+                                 "#33A02C","#ECF6C8",
+                                 "#FEEDAA", "#FDC980","#E75B3A")) +  
+    labs(x = "Growth Stage", y = "Relative abundance (%)", fill = "Phylum") +
+    scale_x_discrete(expand = c(0, 0)) +
+    scale_y_continuous(expand = c(0, 0)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          panel.background = element_blank(),
+          plot.background = element_blank())
+ p
+ ps_genus <- ps0 %>% tax_glom_wt("Genus") %>% transform_sample_counts( function(x) x / sum(x) )
+ 
+
+ otu_table <- as.data.frame(otu_table(ps_genus))
+ tax_table <- as.data.frame(tax_table(ps_genus))
+ sample_data <- as.data.frame(sample_data(ps_genus))
+ 
+
+ da <- otu_table %>%
+   rownames_to_column("OTU") %>%
+   pivot_longer(-OTU, names_to = "ID", values_to = "Abundance") %>%
+   left_join(tax_table %>% rownames_to_column("OTU"), by = "OTU") %>%
+   left_join(sample_data , by = "ID") %>%
+   select(ID, Group, Phylum, Abundance)  
+
+ phylum_abundance <- da %>%
+   group_by(Phylum) %>%
+   summarise(total_abundance = sum(Abundance)) %>%
+   arrange(desc(total_abundance))
+ 
+ top9_phylum <- phylum_abundance$Phylum[1:9]
+ 
+ da_modified <- da %>%
+   mutate(Phylum_group = ifelse(Phylum %in% top9_phylum, Phylum, "Other")) %>%
+   group_by(ID, Group, Phylum_group) %>%
+   summarise(Abundance = sum(Abundance), .groups = "drop")
+ 
+
+ sample_order <- sample_data %>% as.tibble()%>%
+   arrange(factor(Group, levels = c("CK", "Seedling_stage", "vegetative_stage", 
+                                    "flowering_stage", "fruit_stage"))) %>%
+   pull(ID)
+ 
+ da_modified$ID <- factor(da_modified$ID, levels = sample_order)
+ 
+ print(head(da_modified, 20))
+ da_modified %>% filter(ID == "A1") 
+
+ ggplot(data = da_modified, 
+        aes(x = ID, y = Abundance, alluvium = Phylum_group)) +
+   geom_alluvium(aes(fill = Phylum_group), alpha = 1, width = 1/12) +  
+   scale_fill_manual(values = c("#64A4CC", "#9CCEE3", "#C7E5DB", "#ECF6C8",
+                                "#FEEDAA", "#FDC980", "#F89D59", "#E75B3A", 
+                                "#D7191C", "#CCCCCC")) +  
+   labs(x = "Samples", y = "Relative abundance (%)", fill = "Phylum") +
+   scale_x_discrete(expand = c(0, 0)) +
+   scale_y_continuous(expand = c(0, 0)) +
+   theme(axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         panel.background = element_blank(),
+         plot.background = element_blank(),
+         legend.position = "right")
+
+## phylo analysis
+
+psphy = filter_taxa(ps, function(x) sum(x ) > 100, TRUE);psphy
+source("E:\\圆桌会议\\micro\\phylo_Micro\\neutralModel.R")
+result = neutralModel1(ps = psphy,group  = "Group",ncol = n)
+p1 =  result[[1]]
+p1
+source("E:\\圆桌会议\\micro\\phylo_Micro\\bNTICul.R")
+
+result = bNTICul(ps = psphy%>%  filter_OTU_ps(1000),
+                 group  = "Group",
+                 num = 10,
+                 thread = 1
+                 )
+bNTI = result[[1]
+head(bNTI)
+source("E:\\圆桌会议\\micro\\phylo_Micro\\RCbary.R")
+
+result = RCbary(ps = psphy %>%  filter_OTU_ps(1000),group  = "Group",num = 10,thread = 1)
+
+RCbary = result[[1]]
+head(RCbary)
+result = bNTIRCPlot(ps = psphy ,RCb  = RCb,bNTI = bNTI,group  = "Group")
+
+
+p3 <- result[[1]] + mytheme1+
+  ggplot2::scale_x_discrete(limits = axis_order)+
+  theme(axis.text.x=element_text(angle=30))
+p3
+
+
+p4 <- result[[2]] + mytheme1+
+  ggplot2::scale_x_discrete(limits = axis_order)+
+  theme(axis.text.x=element_text(angle=30))
+p4
+
+
+p5 <- result[[3]]+
+  ggplot2::scale_x_discrete(limits = axis_order)
+p5
+plotdata = result[[4]]
+head(plotdata)
+
+dat = result[[5]]
+head(dat)
+
+
+# result2
+
+## dif analysis
+library(phyloseq)
+library(ape)
+library(ggtree)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(RColorBrewer)
+library(patchwork)
+library(ggClusterNet)
+library(tidyverse)
+# 假设ps_dif已经加载并聚合到Genus水平
+ps_dif = readRDS("./data/ps_dif.rds") %>% 
+  tax_glom_wt("Genus") %>% 
+  transform_sample_counts(function(x) x / sum(x))
+
+map <- sample_data(ps_dif) %>% as.tibble()%>% 
+  as.data.frame() 
+
+
+dat <- psmelt(ps_dif) %>%
+  as.data.frame() %>%
+  select(Abundance, Genus,SampleID) %>%
+  filter(Genus != "Unassigned") 
+head(dat)
+
+dat <- dat %>%
+  left_join(map %>% select(SampleID, group), by = "SampleID") %>%
+  filter(group != "CK")
+
+dat_wide <- dat %>%
+  select(Genus, SampleID, Abundance) %>%
+  spread(key = SampleID, value = Abundance, fill = 0) %>%
+  column_to_rownames("Genus")
+
+
+dat_wide_scaled <- t(scale(t(dat_wide)))
+dat_wide_scaled[is.nan(dat_wide_scaled)] <- 0
+dat_wide_scaled[is.na(dat_wide_scaled)] <- 0
+
+
+genus_matrix <- as.matrix(dat_wide_scaled)
+dist_matrix <- dist(genus_matrix, method = "euclidean")
+hc <- hclust(dist_matrix, method = "complete")
+
+ordered_genus <- hc$labels[hc$order]
+
+mean_abundance <- dat %>%
+  group_by(Genus) %>%
+  summarise(Mean_Abundance = mean(Abundance, na.rm = TRUE), .groups = "drop") %>%
+  mutate(Genus = factor(Genus, levels = ordered_genus))
+
+dat_scaled <- as.data.frame(dat_wide_scaled) %>%
+  rownames_to_column("Genus") %>%
+  pivot_longer(-Genus, names_to = "SampleID", values_to = "Abundance_zscore") %>%
+  left_join(map %>% select(SampleID, group), by = "SampleID")
+
+dat_scaled$Genus <- factor(dat_scaled$Genus, levels = ordered_genus)
+
+
+tax <- as.data.frame(tax_table(ps_dif))
+tax[is.na(tax)] <- "Unclassified"
+
+
+genus_phylum_map <- data.frame(
+  Genus = rownames(tax),
+  Phylum = tax$Phylum
+)
+
+tree <- as.phylo(hc)
+
+
+tree_data <- data.frame(
+  label = tree$tip.label
+) %>%
+  left_join(genus_phylum_map, by = c("label" = "Genus"))
+
+
+unique_phyla <- unique(tree_data$Phylum)
+phylum_colors <- setNames(
+  scales::hue_pal()(length(unique_phyla)), 
+  unique_phyla
+)
+
+p_tree <- ggtree(tree, layout = "rectangular") %<+% 
+  tree_data +
+  geom_tiplab(aes(color = Phylum), size = 1.5, align = FALSE) +
+  scale_color_manual(values = phylum_colors) +
+  theme_tree2() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 9, face = "bold"),
+    legend.text = element_text(size = 7)
+  )
+p_tree
+
+stage_list <- c("Seedling_stage", "vegetative_stage", "flowering_stage", "fruit_stage")
+
+
+stage_colors <- setNames(
+  brewer.pal(length(stage_list), "Dark2"),
+  stage_list
+)
+
+heatmap_list <- list()
+
+for (stage in stage_list) {
+  dat_stage <- dat_scaled %>%
+    filter(group == stage)
+  
+  p_heatmap <- ggplot(dat_stage, aes(x = SampleID, y = Genus)) +  
+    geom_tile(aes(fill = Abundance_zscore), colour = "#E0E0E0", size = 0.2) +
+    scale_fill_gradient2(
+      low = "#f0f0f0",
+      high = stage_colors[stage],
+      midpoint = 0.7,
+      limits = c(min(dat_scaled$Abundance_zscore), max(dat_scaled$Abundance_zscore)),
+      name = "Z-score"
+    ) +
+    labs(x = NULL, y = NULL, title = gsub("_", " ", stage)) +
+    theme_minimal() +
+    theme(
+      text = element_text(size = 9, colour = "black"),
+      axis.text.y = element_blank(),  
+      axis.ticks.y = element_blank(),
+      axis.text.x = element_blank(),  
+      axis.ticks.x = element_blank(),
+      plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+      legend.position = "none",
+      panel.grid = element_blank(),
+      plot.margin = margin(2, 1, 2, 1)
+    )
+  
+  heatmap_list[[stage]] <- p_heatmap
+}
+
+p_bar <- ggplot(mean_abundance, aes(x = Mean_Abundance, y = Genus)) +
+  geom_bar(stat = "identity", fill = "#756BB1", width = 0.7) +
+  labs(x = "Mean\nAbundance", y = NULL) +
+  theme_minimal() +
+  theme(
+    text = element_text(size = 9, colour = "black"),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 9, face = "bold"),
+    panel.grid.major.x = element_line(colour = "#E0E0E0", size = 0.3),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(2, 2, 2, 1)
+  )+
+  geom_text(aes(label = Genus), 
+            hjust = -0.1,  
+            size = 2,
+            colour = "black",
+            fontface = "italic")
+
+combined_plot <- p_tree + 
+  heatmap_list[[1]] + 
+  heatmap_list[[2]] + 
+  heatmap_list[[3]] + 
+  heatmap_list[[4]] +
+  p_bar +
+  plot_layout(
+    ncol = 6,
+    widths = c(3, 1.2, 1.2, 1.2, 1.2, 1), 
+    guides = "collect"
+  ) &
+  theme(
+    legend.position = "right",
+    plot.margin = margin(1, 1, 1, 1)
+  )
+
+## function analysis
+psko = readRDS("./data/ps_cnps.rds")
+
+psko2 = psko%>% tax_glom_wt("gene")
+
+otu_table(psko)
+tax_table(psko2)
+
+psko = readRDS("./result_and_plot/Base_diversity_16s/OTU_1103/Tax4Fun2/ps_kegg_gene.rds")
+otu_table(psko)
+
+tax_table(psko)
+
+dat =  read.csv("./result_and_plot/Base_diversity_16s/OTU_1103/Tax4Fun2/cnps3.csv")
+
+dat %>% select(gene ,X.catlaog)
+
+dat2 =  select(dat, 1:31,Group,gene)
+head(dat2)
+dat3 =  dat2 %>%
+  group_by(gene, Group) %>%
+  summarize(across(starts_with("A"), mean), .groups = "drop") %>% 
+  filter(!str_detect(gene, "\\?"))%>% filter(!str_detect(gene, "\\,"))
+
+library(tidyverse)
+library(readxl)
+library(grid)
+library(jjAnno)
+library(MetBrewer)
+dat3[,1:5]
+??ComplexHeatmap
+library(ComplexHeatmap)
+
+map
+expr_matrix <- dat3 %>% 
+  select(-Group,paste("A",1:6,sep = "")) %>% 
+  column_to_rownames("gene") %>% 
+  as.matrix()
+
+expr_matrix =t(scale(t(expr_matrix)))
+
+sample_meta <- map %>%  select(ID,group)%>% filter(group!="CK") %>%   arrange(group) 
+map$group
+
+gene_meta <- dat3 %>% select(gene, Group)
+
+col_annot <- HeatmapAnnotation(
+  Group = sample_meta$group,
+  col = list(Group = c(
+    "CK" = "#1f77b4", 
+    "Seedling_stage" = "#ff7f0e",
+    "vegetative_stage" = "grey50",
+    "flowering_stage" = "#B2DF8A",
+      "fruit_stage" = "#FB9A99"
+    )),
+  show_legend = TRUE
+)
+
+unique(gene_meta$Group)
+
+row_annot <- rowAnnotation(
+  Group = gene_meta$Group,
+  col = list(Group = c(
+    "P" = "#d62728",
+    "C" = "#2ca02c",
+    "N" =  "#B2DF8A"  ,
+    "S" =   "#A6CEE3"  ),
+  show_annotation_name = FALSE
+))
+
+col_fun <- circlize::colorRamp2(
+  breaks = c(min(expr_matrix), 0, max(expr_matrix)), 
+  colors = c("#F0F0F0", "#FFFFFF", "#B2182B")  
+)
+
+# result 3
+ps = readRDS("./datat/ps_GC1_5.rds")
+library(phyloseq)
+library(Mfuzz)
+library(Biobase) 
+library(dplyr)
+library(tidyr)
+ps = psgc
+otu_mat <- as.matrix(otu_table(ps))
+
+otu_df <- as.data.frame(otu_mat)
+otu_df$PeakID <- rownames(otu_df)
+
+
+meta_df <- as.data.frame(sample_data(ps))
+meta_df$SampleID <- rownames(meta_df)
+
+
+data_long <- otu_df %>%
+  pivot_longer(cols = -PeakID, names_to = "SampleID", values_to = "Abundance") %>%
+  left_join(meta_df, by = "SampleID")
+
+stage_order <- c("Seedling stage", "vegetative stage", "flowering stage", "fruit stage")
+
+unique(meta_df$Group ) %in% stage_order
+
+
+data_mean <- data_long %>%
+  group_by(PeakID, Group) %>% 
+  summarise(MeanAbundance = mean(Abundance), .groups = 'drop') %>%
+
+  dplyr::mutate(Group = factor(Group, levels = stage_order)) %>%
+  arrange(Group) %>%
+
+  pivot_wider(names_from = Group, values_from = MeanAbundance)
+
+
+final_mat <- as.matrix(data_mean[, -1])
+rownames(final_mat) <- data_mean$PeakID
+
+
+print(colnames(final_mat)) 
+
+eset <- new("ExpressionSet", exprs = final_mat)
+eset.s <- standardise(eset)
+m1 <- mestimate(eset.s)
+print(paste("Estimated m:", m1))
+set.seed(123) 
+cl <- mfuzz(eset.s, c = c_num, m = m1)
+mfuzz.plot2(eset.s, cl = cl, mfrow = c(1, 4), 
+            time.labels = colnames(final_mat), # X轴标签
+            colo = "fancy", 
+            x11 = FALSE)
+
+cluster_labels <- cl$cluster
+
+membership_scores <- cl$membership
+
+cluster1_peaks <- names(cluster_labels[cluster_labels == 3])
+
+result_df <- data.frame(
+  PeakID = names(cluster_labels),
+  Cluster = cluster_labels,
+  Membership = apply(membership_scores, 1, max) # 取最大的那个隶属度
+)
+
+core_cluster <- subset(result_df,  Membership > 0.3)
+head(core_cluster1)
+
+
+
+
+
+
+
